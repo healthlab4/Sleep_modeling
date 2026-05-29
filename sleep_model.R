@@ -1,18 +1,13 @@
 library(dplyr)
 library(stringr)
-library(lubridate)
 library(tidyverse)
 library(lubridate)
 library(hms)
-library(patchwork)
 library(lmerTest)
 library(broom.mixed)
-library(knitr)
-library(kableExtra)
-library(ggplot2)
-library(lattice)
-library(sjPlot)
 
+
+## Download files from GCP and store locally ##
 ema_data <- read.csv("")
 sleep_file <- read_csv('')
 bout_data_daily <- read_csv('')
@@ -98,9 +93,12 @@ merged_data_sleep_ema <- ema_data_processed %>%
   ungroup()
 
 
-### Function to process models ###
-## Function expects models in the for of list ##
-## Specify the engine with: glmer or lmer ##
+### Function to process models 
+##  Function expects models in the for of list
+##  Specify the engine with: glmer or lmer 
+##  Outputs a table summary along with model estimates 
+##  for each variable in the model. 
+## model_id in the results file corresponds to model number in the list
 
 run_lmerTest_pipeline <- function(formula_list, data, engine) {
   
@@ -194,8 +192,6 @@ mvpa_model <- run_lmerTest_pipeline(
 )
 
 
-
-
 ### Intention (Intend.to.engage.MVPA)
 
 all_models <- list(
@@ -226,8 +222,6 @@ Intention_model <- run_lmerTest_pipeline(
   data            = merged_data_sleep_ema,
   engine          = "glmer"
 )
-
-
 
 ### MVPA minutes ###
 merged_data_sleep_ema <- merged_data_sleep_ema %>%
