@@ -98,6 +98,172 @@ merged_data_sleep_ema <- ema_data_processed %>%
   ungroup()
 
 
+### Function to process models ###
+## Function expects models in the for of list ##
+## Specify the engine with: glmer or lmer ##
+
+run_lmerTest_pipeline <- function(formula_list, data, engine) {
+  
+  # Standardize engine input right away
+  engine_choice <- tolower(engine)
+  if (!engine_choice %in% c("lmer", "glmer")) {
+    stop("Engine must be explicitly set to either 'lmer' or 'glmer'.")
+  }
+  
+  process_model <- function(formula_input, index) {
+    formula_obj <- as.formula(formula_input)
+    outcome_var <- all.vars(formula_obj)[1]
+    
+    cat(sprintf("Processing Model %d [%s]\n", index, engine_choice))
+    
+    # Listwise deletion of missing values for variables in this specific formula
+    model_vars   <- all.vars(formula_obj)
+    clean_data   <- data %>% dplyr::select(all_of(model_vars)) %>% na.omit()
+    
+    # ---- Execute based on user's engine choice ----
+    results <- tryCatch({
+      if (engine_choice == "glmer") {
+        
+        if (!is.factor(clean_data[[outcome_var]])) {
+          clean_data[[outcome_var]] <- as.factor(clean_data[[outcome_var]])
+        }
+        
+        model_fit <- lme4::glmer(
+          formula = formula_obj, 
+          data    = clean_data, 
+          family  = 'binomial',
+          control = lme4::glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
+        )
+        
+        broom.mixed::tidy(model_fit, effects = "fixed", conf.int = TRUE, exponentiate = TRUE) %>%
+          dplyr::rename(estimate_val = estimate) %>%
+          dplyr::mutate(metric_type = "Odds Ratio (OR)")
+        
+      } else if (engine_choice == "lmer") {
+        
+        model_fit <- lmerTest::lmer(formula = formula_obj, data = clean_data)
+        
+        broom.mixed::tidy(model_fit, effects = "fixed", conf.int = TRUE) %>%
+          dplyr::rename(estimate_val = estimate) %>%
+          dplyr::mutate(metric_type = "Beta (b)")
+      }
+    }, error = function(e) {
+      cat(sprintf("  !! Model %d failed: %s\n", index, e$message))
+      return(NULL)
+    })
+    
+    # ---- Format Output Row ----
+    if (!is.null(results)) {
+      results <- results %>%
+        dplyr::mutate(
+          model_id     = index,
+          engine_used  = engine_choice
+        ) %>%
+        dplyr::select(model_id, engine_used, term, metric_type, estimate_val, std.error, p.value, conf.low, conf.high)
+    }
+    
+    return(results)
+  }
+  # Map over formulas and stack results
+  all_results <- purrr::imap_dfr(formula_list, ~process_model(.x, .y))
+  return(all_results)
+}
+  
+all_models <- list(
+  Day.MVPA.Lapse ~ scaled_minutes_after_wakeup + scaled_minutes_asleep + day_type + Day.in.Program + (1 |
+                                                                                                        ID),
+  Day.MVPA.Lapse ~ minutes_after_wakeup_within + minutes_after_wakeup_between + minutes_asleep_within + minutes_asleep_between +
+    day_type + Day.in.Program + (1 | ID),
+  
+  Day.MVPA.Lapse ~ scaled_minutes_asleep + scaled_minutes_in_bed + day_type + Day.in.Program + (1 |
+                                                                                                  ID),
+  Day.MVPA.Lapse ~ minutes_asleep_within + minutes_asleep_between + minutes_in_bed_within + minutes_in_bed_between + day_type +
+    Day.in.Program + (1 | ID),
+  
+  Day.MVPA.Lapse ~ scaled_minutes_awake + scaled_minutes_in_bed + day_type + Day.in.Program + (1 |
+                                                                                                 ID),
+  Day.MVPA.Lapse ~ minutes_awake_within + minutes_awake_between + minutes_in_bed_within + minutes_in_bed_between + day_type +
+    Day.in.Program + (1 | ID)
+)
+
+### Processing all mvpa_lapse models ##
+mvpa_model <- run_lmerTest_pipeline(
+  formula_list    = all_models,
+  data            = merged_data_sleep_ema,
+  engine          = "glmer"
+)
+
+
+
+
+### Intention (Intend.to.engage.MVPA)
+
+all_models <- list(
+  Intend.to.engage.MVPA ~ scaled_minutes_after_wakeup + scaled_minutes_asleep + day_type + Day.in.Program + (1|ID),
+  Intend.to.engage.MVPA ~ minutes_after_wakeup_within + minutes_after_wakeup_between + minutes_asleep_within +
+    minutes_asleep_between + day_type + Day.in.Program + (1|ID),
+  
+  Intend.to.engage.MVPA ~ scaled_minutes_asleep + scaled_minutes_in_bed + day_type + Day.in.Program + (1|ID),
+  Intend.to.engage.MVPA ~ minutes_asleep_within + minutes_asleep_between + minutes_in_bed_within + minutes_in_bed_between +
+    day_type + Day.in.Program + (1|ID),
+  
+  Intend.to.engage.MVPA ~ scaled_minutes_awake + scaled_minutes_in_bed + day_type + Day.in.Program + (1|ID),
+  Intend.to.engage.MVPA ~ minutes_awake_within + minutes_awake_between +  minutes_in_bed_within + minutes_in_bed_between +
+    day_type + Day.in.Program + (1|ID),
+  
+  
+  Intend.to.engage.MVPA ~ scaled_minutes_in_bed + scaled_minutes_asleep + day_type + Day.in.Program + (1|ID),
+  Intend.to.engage.MVPA ~ minutes_in_bed_within + minutes_in_bed_between + minutes_asleep_within +  minutes_asleep_between +
+    day_type + Day.in.Program + (1|ID),
+  
+  Intend.to.engage.MVPA ~ efficiency +  scaled_minutes_asleep + day_type + Day.in.Program + (1|ID)
+)
+
+
+### Processing all Intention models ##
+Intention_model <- run_lmerTest_pipeline(
+  formula_list    = all_models,
+  data            = merged_data_sleep_ema,
+  engine          = "glmer"
+)
+
+
+
+### MVPA minutes ###
+merged_data_sleep_ema <- merged_data_sleep_ema %>%
+  dplyr::mutate(mvpa_minutes = fairly_active_mins + vigorous_active_mins) ## mvpa outcome
+
+
+all_models <- list(
+  mvpa_minutes ~ scaled_minutes_after_wakeup + scaled_minutes_asleep + day_type + Day.in.Program + (1|ID),
+  mvpa_minutes ~ minutes_after_wakeup_within + minutes_after_wakeup_between + minutes_asleep_within +
+    minutes_asleep_between + day_type + Day.in.Program + (1|ID),
+  
+  mvpa_minutes ~ scaled_minutes_asleep + scaled_minutes_in_bed + day_type + Day.in.Program + (1|ID),
+  mvpa_minutes ~ minutes_asleep_within + minutes_asleep_between + minutes_in_bed_within + minutes_in_bed_between +
+    day_type + Day.in.Program + (1|ID),
+  
+  mvpa_minutes ~ scaled_minutes_awake + scaled_minutes_in_bed + day_type + Day.in.Program + (1|ID),
+  mvpa_minutes ~ minutes_awake_within + minutes_awake_between +  minutes_in_bed_within + minutes_in_bed_between +
+    day_type + Day.in.Program + (1|ID),
+  
+  
+  mvpa_minutes ~ scaled_minutes_in_bed + scaled_minutes_asleep + day_type + Day.in.Program + (1|ID),
+  mvpa_minutes ~ minutes_in_bed_within + minutes_in_bed_between + minutes_asleep_within +  minutes_asleep_between +
+    day_type + Day.in.Program + (1|ID),
+  
+  mvpa_minutes ~ efficiency +  scaled_minutes_asleep + day_type + Day.in.Program + (1|ID)
+)
+
+
+### Processing all mvpa_minutes models ##
+mvpa_minutes_model <- run_lmerTest_pipeline(
+  formula_list    = all_models,
+  data            = merged_data_sleep_ema,
+  engine          = "lmer"
+)
+
+
 
 
 
